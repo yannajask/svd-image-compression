@@ -1,5 +1,3 @@
-use std::cmp::min;
-
 #[derive(Debug, Clone)]
 pub struct Matrix {
     pub data: Vec<f64>,
@@ -20,9 +18,9 @@ impl Matrix {
 
     /// Creates an `m` x `n` identity matrix.
     #[inline]
-    pub fn identity(m: usize, n: usize) -> Matrix {
-        let mut identity_matrix = Matrix::new(m, n);
-        for i in 0..std::cmp::min(m, n) {
+    pub fn identity(n: usize) -> Matrix {
+        let mut identity_matrix = Matrix::new(n, n);
+        for i in 0..n {
             identity_matrix.data[i * n + i] = 1.0;
         }
         identity_matrix
@@ -92,37 +90,28 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let m = a.rows;
     let n = a.cols;
     let mut b = a.clone();
-    let mut v = Matrix::identity(m, m);
-    let mut u_t = Matrix::identity(n, n);
+    let mut v = Matrix::identity(m);
+    let mut u = Matrix::identity(n);
 
     for k in 0..n {
         // x = A(k: m,k)
         // u_k = x + sign(x[0]) * x.norm() * e_1
         // u_k = u_k.norm()
-        let x = &b.data[k..k+m]; // this is wrong, we need the column vector
-        let mut u_k = x.to_vec();
-        u_k[0] += sign(x[0]) * norm(x);
-        u_k = normalize(&u_k);
-        u_t.data[k*n..(k+1)*n].copy_from_slice(&u_k);
+        let x: Vec<f64> = (k..m).map(|i| a.data[i * n + k]).collect();
+        let mut u_k = x.clone();
+        u_k[0] += sign(x[0]) * norm(&x);
+        normalize(&mut u_k);
+        u.data[k*n..(k+1)*n].copy_from_slice(&u_k); // this is wrong
         // B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
 
         if k <= (n - 2) {
-            let x = &b.data[(k*n)+k+1..(k*n)+n];
-            let mut v_k = x.to_vec();
-            v_k[0] += sign(x[0]) * norm(x);
-            v_k = normalize(&v_k);
+            let x: Vec<f64> = (k+1..n).map(|j| a.data[k * n + j]).collect();
+            let mut v_k = x.clone();
+            v_k[0] += sign(x[0]) * norm(&x);
+            normalize(&mut v_k);
             // goes to column vector in v
             // B[k:m, (k+1):n] -= 2 * A[k:m, (k+1):n, v_k] & v_k^t
         }
     }
-
-    for i in 0..a.cols {
-        // v_k = sign(x) * x.abs() * e_1 + x
-        // v_k = normalize(v_k)
-        for j in i..a.cols {
-            // A(k: m, j) = A(k: m, j) - (2 * v_k * (v_k_t * A(k: m, j))
-        }
-    }
-
-    (v, b, u_t)
+    (v, b, u)
 }
