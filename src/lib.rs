@@ -43,6 +43,40 @@ impl Matrix {
         }
         transposed
     }
+
+    pub fn modify_range(&mut self, i: usize, j: usize, other: &Matrix) {
+        // this function needs to be fixed later to do the proper checks and be
+        // optimized, but this is to get it working
+        let m = other.rows;
+        let n = other.cols;
+        for k in i..m {
+            for l in j..n {
+                self.data[k * self.cols + l] = other.get(k, l);
+            }
+        }
+    }
+
+    pub fn get_range(&self, row_start: usize, row_end: usize, col_start: usize, col_end: usize) -> Matrix {
+        let m = row_end - row_start;
+        let n = col_end - col_start;
+        let mut submatrix = Matrix::new(m, n);
+        for i in 0..m {
+            for j in 0..n {
+                submatrix.data[i * n + j] = self.get(row_start + i, col_start + j);
+            }
+        }
+        submatrix
+    }
+
+    pub fn scale(&self, s: f64) -> Matrix {
+        let mut scaled_matrix = Matrix::new(self.rows, self.cols);
+        for i in 0..self.rows {
+            for j in 0..self.cols {
+                scaled_matrix.data[i * self.cols + j] = s * self.get(i, j);
+            }
+        }
+        scaled_matrix
+    }
 }
 
 fn sign(x: f64) -> f64 {
@@ -88,6 +122,18 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
+fn matrix_addition(a: &Matrix, b: Matrix) -> Matrix {
+    assert_eq!(a.cols, b.cols);
+    assert_eq!(a.rows, b.rows);
+    let mut sum = Matrix::new(a.rows, a.cols);
+    for i in 0..a.rows {
+        for j in 0..a.cols {
+            sum.data[i + a.cols + j] = a.get(i, j) + b.get(i, j);
+        }
+    }
+    sum
+}
+
 fn outer_product(u: &[f64], v: &[f64]) -> Matrix {
     let m = u.len();
     let n = v.len();
@@ -109,15 +155,14 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let mut u = Matrix::identity(n);
 
     for k in 0..n {
-        // x = A(k: m,k)
-        // u_k = x + sign(x[0]) * x.norm() * e_1
-        // u_k = u_k.norm()
         let x: Vec<f64> = (k..m).map(|i| a.data[i * n + k]).collect();
         let mut u_k = x.clone();
         u_k[0] += sign(x[0]) * norm(&x);
         u_k = normalize(&u_k);
         u.data[k*n..(k+1)*n].copy_from_slice(&u_k); // this is wrong
         // B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
+        // 
+        // B.modify_range(k, k, hh_transformation);
 
         if k <= (n - 2) {
             let x: Vec<f64> = (k+1..n).map(|j| a.data[k * n + j]).collect();
