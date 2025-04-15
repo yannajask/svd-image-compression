@@ -63,7 +63,10 @@ fn norm(x: &[f64]) -> f64 {
 
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
-    x.iter().map(|&x| x / norm).collect()
+    match norm {
+        0.0 => x.to_vec(),
+        _ => x.iter().map(|&x| x / norm).collect(),
+    }
 }
 
 /// Returns the matrix product of A and B.
@@ -85,6 +88,18 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
+fn outer_product(u: &[f64], v: &[f64]) -> Matrix {
+    let m = u.len();
+    let n = v.len();
+    let mut product = Matrix::new(m, n);
+    for i in 0..m {
+        for j in 0..n {
+            product.data[i * n + j] = u[i] * v[j];
+        }
+    }
+    product
+}
+
 //https://www.math.iit.edu/~fass/477577_Chapter_12.pdf
 pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let m = a.rows;
@@ -100,7 +115,7 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         let x: Vec<f64> = (k..m).map(|i| a.data[i * n + k]).collect();
         let mut u_k = x.clone();
         u_k[0] += sign(x[0]) * norm(&x);
-        normalize(&mut u_k);
+        u_k = normalize(&u_k);
         u.data[k*n..(k+1)*n].copy_from_slice(&u_k); // this is wrong
         // B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
 
@@ -108,7 +123,7 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
             let x: Vec<f64> = (k+1..n).map(|j| a.data[k * n + j]).collect();
             let mut v_k = x.clone();
             v_k[0] += sign(x[0]) * norm(&x);
-            normalize(&mut v_k);
+            v_k = normalize(&v_k);
             // goes to column vector in v
             // B[k:m, (k+1):n] -= 2 * A[k:m, (k+1):n, v_k] & v_k^t
         }
