@@ -1,9 +1,6 @@
 use std::ops::{Index, IndexMut};
 use std::fmt;
 
-// to do: find a more elegant way to do this
-static TOLERANCE: f64 = 1e-12;
-
 #[derive(Debug, Clone)]
 pub struct Matrix {
     pub data: Vec<f64>,
@@ -136,7 +133,7 @@ fn norm(x: &[f64]) -> f64 {
 
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
-    if norm < TOLERANCE {
+    if norm < 1e-16 {
         vec![0.0, x.len() as f64]
     } else {
         x.iter().map(|&x| x / norm).collect()
@@ -146,7 +143,6 @@ fn normalize(x: &[f64]) -> Vec<f64> {
 /// Returns the matrix product of A and B.
 /// 
 /// Panics if `a.cols` is not equal to `b.rows`.
-// to do: use parallel strassen
 #[inline]
 pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     assert_eq!(a.cols, b.rows, "A must have the same number of columns as the number of rows in B.");
@@ -163,7 +159,7 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
-// to do: use maps and from_vec
+// to do: use maps and from_vec OR parallel strassen algorithm
 fn matrix_addition(a: &Matrix, b: &Matrix) -> Matrix {
     assert_eq!(a.cols, b.cols);
     assert_eq!(a.rows, b.rows);
@@ -199,60 +195,54 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     for k in 0..n {
         if k < m {
             let x: Vec<f64> = (k..m).map(|i| b[[i, k]]).collect();
-            let alpha = norm(&x);
-            if alpha < TOLERANCE {
-                let mut u_k = x.clone();
-                u_k[0] += sign(x[0]) * alpha;
-                u_k = normalize(&u_k);
-                
-                // this needs to be cleaned up
-                //  B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
-                /*
-                let u_k = Matrix::from_vec(u_k.len(), 1, &u_k);
-                let b_k = b.get_range(k, m, k, n);
-                let tmp = matrix_multiply(&u_k.transpose(), &b_k);
-                let scaled = matrix_multiply(&u_k, &tmp).scale(-2.0);
-                let hh_transformation = matrix_addition(&b_k, &scaled);
-                b.modify_range(k, k, &hh_transformation);
-                u = matrix_multiply(&u, &householder_reflection(&u_k, k, n));
-                //
-                */
-                let mut u_k_padded = Matrix::new(m, 1);
-                for i in 0..u_k.len() {
-                    u_k_padded[[k + i, 0]] = u_k[i];
-                }
-                let hr = householder_reflection(&u_k_padded, m);
-                b = matrix_multiply(&hr, &b);
-                u = matrix_multiply(&u, &hr);
+            let mut u_k = x.clone();
+            u_k[0] += sign(x[0]) * norm(&x);
+            u_k = normalize(&u_k);
+            
+            // this needs to be cleaned up
+            //  B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
+            /*
+            let u_k = Matrix::from_vec(u_k.len(), 1, &u_k);
+            let b_k = b.get_range(k, m, k, n);
+            let tmp = matrix_multiply(&u_k.transpose(), &b_k);
+            let scaled = matrix_multiply(&u_k, &tmp).scale(-2.0);
+            let hh_transformation = matrix_addition(&b_k, &scaled);
+            b.modify_range(k, k, &hh_transformation);
+            u = matrix_multiply(&u, &householder_reflection(&u_k, k, n));
+            //
+            */
+            let mut u_k_padded = Matrix::new(m, 1);
+            for i in 0..u_k.len() {
+                u_k_padded[[k + i, 0]] = u_k[i];
             }
+            let hr = householder_reflection(&u_k_padded, m);
+            b = matrix_multiply(&hr, &b);
+            u = matrix_multiply(&u, &hr);
         }
 
         if k < n - 1 {
             let x: Vec<f64> = (k + 1..n).map(|j| b[[k, j]]).collect();
             let mut v_k = x.clone();
-            let alpha = norm(&x);
-            if alpha < TOLERANCE {
-                v_k[0] += sign(x[0]) * alpha;
-                v_k = normalize(&v_k);
-                // this also needs to be cleaned up
-                // B[k:m, (k+1):n] -= 2 * A[k:m, (k+1):n, v_k] & v_k^t
-                /*
-                let v_k = Matrix::from_vec(v_k.len(), 1, &v_k);
-                let b_k = b.get_range(k, m, k + 1, n);
-                let tmp = matrix_multiply(&b_k, &v_k);
-                let scaled = matrix_multiply(&tmp, &v_k.transpose()).scale(-2.0);
-                let hh_transformation = matrix_addition(&b_k, &scaled);
-                b.modify_range(k, k + 1, &hh_transformation);
-                v = matrix_multiply(&v, &householder_reflection(&v_k, k + 1, m));
-                */
-                let mut v_k_padded = Matrix::new(n, 1);
-                for i in 0..v_k.len() {
-                    v_k_padded[[k + 1 + i, 0]] = v_k[i];
-                }
-                let hr = householder_reflection(&v_k_padded, n);
-                b = matrix_multiply(&b, &hr);
-                v = matrix_multiply(&hr, &v);
+            v_k[0] += sign(x[0]) * norm(&x);
+            v_k = normalize(&v_k);
+            // this also needs to be cleaned up
+            // B[k:m, (k+1):n] -= 2 * A[k:m, (k+1):n, v_k] & v_k^t
+            /*
+            let v_k = Matrix::from_vec(v_k.len(), 1, &v_k);
+            let b_k = b.get_range(k, m, k + 1, n);
+            let tmp = matrix_multiply(&b_k, &v_k);
+            let scaled = matrix_multiply(&tmp, &v_k.transpose()).scale(-2.0);
+            let hh_transformation = matrix_addition(&b_k, &scaled);
+            b.modify_range(k, k + 1, &hh_transformation);
+            v = matrix_multiply(&v, &householder_reflection(&v_k, k + 1, m));
+            */
+            let mut v_k_padded = Matrix::new(n, 1);
+            for i in 0..v_k.len() {
+                v_k_padded[[k + 1 + i, 0]] = v_k[i];
             }
+            let hr = householder_reflection(&v_k_padded, n);
+            b = matrix_multiply(&b, &hr);
+            v = matrix_multiply(&hr, &v);
         }
     }
     (u, b, v)
@@ -284,20 +274,20 @@ mod tests {
     fn test_tall_bidiag() {
         let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
     }
 
     #[test]
     fn test_square_bidiag() {
         let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
     }
 
     #[test]
     fn test_wide_bidiag() {
         let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
     }
 }
