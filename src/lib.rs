@@ -124,18 +124,19 @@ fn sign(x: f64) -> f64 {
 }
 
 fn norm(x: &[f64]) -> f64 {
-    let mut norm = 0.0_f64;
+    let mut norm_sq = 0.0_f64;
     for i in x {
-        norm += i * i;
+        norm_sq += i * i;
     }
-    norm.sqrt()
+    norm_sq.sqrt()
 }
 
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
-    match norm {
-        0.0 => x.to_vec(),
-        _ => x.iter().map(|&x| x / norm).collect(),
+    if norm < 1e-16 {
+        vec![0.0, x.len() as f64]
+    } else {
+        x.iter().map(|&x| x / norm).collect()
     }
 }
 
