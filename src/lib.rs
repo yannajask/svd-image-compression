@@ -49,6 +49,7 @@ impl Matrix {
         transposed
     }
 
+    // to do: delete these functions, probably
     pub fn modify_range(&mut self, i: usize, j: usize, other: &Matrix) {
         // this function needs to be fixed later to do the proper checks and be
         // optimized, but this is to get it working
@@ -143,6 +144,7 @@ fn normalize(x: &[f64]) -> Vec<f64> {
 /// Returns the matrix product of A and B.
 /// 
 /// Panics if `a.cols` is not equal to `b.rows`.
+// to do: use strassen algorithm
 #[inline]
 pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     assert_eq!(a.cols, b.rows, "A must have the same number of columns as the number of rows in B.");
@@ -159,7 +161,7 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
-// to do: use maps and from_vec OR parallel strassen algorithm
+// to do: use maps and from_vec
 fn matrix_addition(a: &Matrix, b: &Matrix) -> Matrix {
     assert_eq!(a.cols, b.cols);
     assert_eq!(a.rows, b.rows);
@@ -172,52 +174,42 @@ fn matrix_addition(a: &Matrix, b: &Matrix) -> Matrix {
     sum
 }
 
-// w is a unit vector
-fn householder_reflection(w: &Matrix, n: usize) -> Matrix {
-    let mut p = Matrix::identity(n);
-    for i in 0..n {
-        for j in 0..n {
-            p[[i, j]] -= 2.0 * w[[i, 0]] * w[[j, 0]];
-        }
-    }
-    p
-}
-
 //https://www.math.iit.edu/~fass/477577_Chapter_12.pdf
+// to do: less repeated iteration when updating matrices or run in parallel
 pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let m = a.rows;
     let n = a.cols;
-    let mut b = a.clone();
+    let mut b = a.clone(); // bidiagonal matrix
 
     let mut u = Matrix::identity(m); // left reflections
     let mut v = Matrix::identity(n); // right reflections
 
-    for k in 0..n {
-        if k < m {
-            let x: Vec<f64> = (k..m).map(|i| b[[i, k]]).collect();
-            let mut u_k = x.clone();
-            u_k[0] += sign(x[0]) * norm(&x);
-            u_k = normalize(&u_k);
-            
-            // this needs to be cleaned up
-            //  B(k: m, k: n) -= 2 * u_k (u_k^t * B[k:m, k:n])
-            /*
-            let u_k = Matrix::from_vec(u_k.len(), 1, &u_k);
-            let b_k = b.get_range(k, m, k, n);
-            let tmp = matrix_multiply(&u_k.transpose(), &b_k);
-            let scaled = matrix_multiply(&u_k, &tmp).scale(-2.0);
-            let hh_transformation = matrix_addition(&b_k, &scaled);
-            b.modify_range(k, k, &hh_transformation);
-            u = matrix_multiply(&u, &householder_reflection(&u_k, k, n));
-            //
-            */
-            let mut u_k_padded = Matrix::new(m, 1);
-            for i in 0..u_k.len() {
-                u_k_padded[[k + i, 0]] = u_k[i];
+    for k in 0..m.min(n) {
+        let x: Vec<f64> = (k..m).map(|i| b[[i, k]]).collect();
+        let mut u_k = x.clone();
+        u_k[0] += sign(x[0]) * norm(&x);
+        u_k = normalize(&u_k);
+
+        //  B[k:m, k:n] -= 2 * u_k (u_k^T * B[k:m, k:n])
+        for j in k..n {
+            let mut product = 0.0;
+            for i in 0..(m - k) {
+                product += u_k[i] * b[[k + i, j]];
             }
-            let hr = householder_reflection(&u_k_padded, m);
-            b = matrix_multiply(&hr, &b);
-            u = matrix_multiply(&u, &hr);
+            for i in 0..(m - k) {
+                b[[k + i, j]] -= 2.0 * u_k[i] * product;
+            }
+        }
+
+        // accumulate transformation in U
+        for i in 0..m {
+            let mut product = 0.0;
+            for j in 0..(m - k) {
+                product += u[[i, k + j]] * u_k[j];
+            }
+            for j in 0..(m - k) {
+                u[[i, k + j]] -= 2.0 * product * u_k[j];
+            }
         }
 
         if k < n - 1 {
@@ -225,24 +217,28 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
             let mut v_k = x.clone();
             v_k[0] += sign(x[0]) * norm(&x);
             v_k = normalize(&v_k);
-            // this also needs to be cleaned up
-            // B[k:m, (k+1):n] -= 2 * A[k:m, (k+1):n, v_k] & v_k^t
-            /*
-            let v_k = Matrix::from_vec(v_k.len(), 1, &v_k);
-            let b_k = b.get_range(k, m, k + 1, n);
-            let tmp = matrix_multiply(&b_k, &v_k);
-            let scaled = matrix_multiply(&tmp, &v_k.transpose()).scale(-2.0);
-            let hh_transformation = matrix_addition(&b_k, &scaled);
-            b.modify_range(k, k + 1, &hh_transformation);
-            v = matrix_multiply(&v, &householder_reflection(&v_k, k + 1, m));
-            */
-            let mut v_k_padded = Matrix::new(n, 1);
-            for i in 0..v_k.len() {
-                v_k_padded[[k + 1 + i, 0]] = v_k[i];
+
+            // B[k:m, (k+1):n] -= 2 * (A[k:m, (k+1):n] * v_k) v_k^T
+            for i in k..m {
+                let mut product = 0.0;
+                for j in 0..(n - k - 1) {
+                    product += b[[i, k + 1 + j]] * v_k[j];
+                }
+                for j in 0..(n - k - 1) {
+                    b[[i, k + 1 + j]] -= 2.0 * product * v_k[j];
+                }
             }
-            let hr = householder_reflection(&v_k_padded, n);
-            b = matrix_multiply(&b, &hr);
-            v = matrix_multiply(&hr, &v);
+
+            // accumulate transformation in V
+            for i in 0..n {
+                let mut product = 0.0;
+                for j in 0..(n - k - 1) {
+                    product += v[[i, k + 1 + j]] * v_k[j];
+                }
+                for j in 0..(n - k - 1) {
+                    v[[i, k + 1 + j]] -= 2.0 * product * v_k[j];
+                }
+            }
         }
     }
     (u, b, v)
