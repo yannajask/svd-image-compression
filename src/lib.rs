@@ -1,5 +1,20 @@
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Range};
 use std::fmt;
+
+// to do:
+// -add proper asserts to constructors
+// -optimize matrix multiplication with strassen algorithm
+// -remove repeated for loops for bidiagonalization
+// -implement jacobi svd
+// -implement rank fn
+// -implement rank_k truncation fn
+// -implement is_bidiagonal, is_diagonal, is_orthogonal matrix fn's
+// -add unit tests for svd
+// -put functions in modules:
+// ---image_compression
+//     |---svd
+//     |---image_to_matrix
+
 
 #[derive(Debug, Clone)]
 pub struct Matrix {
@@ -19,6 +34,8 @@ impl Matrix {
         }
     }
 
+    /// Creates an `m` x `n` matrix from a vector with length `mn`.
+    #[inline]
     pub fn from_vec(m: usize, n: usize, data: &[f64]) -> Matrix {
         Matrix {
             data: data.to_vec(),
@@ -27,7 +44,7 @@ impl Matrix {
         }
     }
 
-    /// Creates an `m` x `n` identity matrix.
+    /// Creates an `n` x `n` identity matrix.
     #[inline]
     pub fn identity(n: usize) -> Matrix {
         let mut identity_matrix = Matrix::new(n, n);
@@ -49,34 +66,20 @@ impl Matrix {
         transposed
     }
 
-    // to do: delete these functions, probably
-    pub fn modify_range(&mut self, i: usize, j: usize, other: &Matrix) {
-        // this function needs to be fixed later to do the proper checks and be
-        // optimized, but this is to get it working
-        let m = other.rows;
-        let n = other.cols;
-        for k in 0..m {
-            for l in 0..n {
-                self[[i + k, j + l]] = other[[k, l]];
-            }
-        }
+    pub fn shape(&self) -> (usize, usize) {
+        (self.rows, self.cols)
     }
 
-    pub fn get_range(&self, row_start: usize, row_end: usize, col_start: usize, col_end: usize) -> Matrix {
-        let m = row_end - row_start;
-        let n = col_end - col_start;
-        let mut submatrix = Matrix::new(m, n);
-        for i in 0..m {
-            for j in 0..n {
-                submatrix[[i, j]] = self[[row_start + i, col_start + j]];
+    pub fn slice(&self, row_range: Range<usize>, col_range: Range<usize>) -> Matrix {
+        let mut data = Vec::new();
+        let m = row_range.end - row_range.start;
+        let n = col_range.end - col_range.start;
+        for i in row_range.start..row_range.end {
+            for j in col_range.start..col_range.end {
+                data.push(self[[i, j]]);
             }
         }
-        submatrix
-    }
-
-    pub fn scale(&self, s: f64) -> Matrix {
-        let scaled_data: Vec<f64> = self.data.iter().map(|&x| s * x).collect();
-        Matrix::from_vec(self.rows, self.cols, &scaled_data)
+        Matrix::from_vec(m, n, &data)
     }
 }
 
@@ -161,26 +164,11 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
-// to do: use maps and from_vec
-fn matrix_addition(a: &Matrix, b: &Matrix) -> Matrix {
-    assert_eq!(a.cols, b.cols);
-    assert_eq!(a.rows, b.rows);
-    let mut sum = Matrix::new(a.rows, a.cols);
-    for i in 0..a.rows {
-        for j in 0..a.cols {
-            sum[[i, j]] = a[[i, j]] + b[[i, j]];
-        }
-    }
-    sum
-}
-
 //https://www.math.iit.edu/~fass/477577_Chapter_12.pdf
 // to do: less repeated iteration when updating matrices or run in parallel
 pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
-    let m = a.rows;
-    let n = a.cols;
-    let mut b = a.clone(); // bidiagonal matrix
-
+    let (m, n) = a.shape();
+    let mut b = a.clone();           // bidiagonal matrix
     let mut u = Matrix::identity(m); // left reflections
     let mut v = Matrix::identity(n); // right reflections
 
@@ -190,7 +178,7 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         u_k[0] += sign(x[0]) * norm(&x);
         u_k = normalize(&u_k);
 
-        //  B[k:m, k:n] -= 2 * u_k (u_k^T * B[k:m, k:n])
+        // B[k:m, k:n] -= 2 * u_k (u_k^T * B[k:m, k:n])
         for j in k..n {
             let mut product = 0.0;
             for i in 0..(m - k) {
@@ -244,16 +232,36 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     (u, b, v)
 }
 
-fn jacobi_svd(u: &Matrix, b: &Matrix, v: &Matrix) -> Matrix {
-    //let mut singular_values: Vec<f64>;
-    //let m = b.rows;
-    //let n = b.cols;
+// https://www.cs.utexas.edu/~inderjit/public_papers/HLA_SVD.pdf
+fn svd_bidiagonal(b: &Matrix) -> (Matrix, Matrix, Matrix) {
+    let (m, n) = b.shape();
+    let mut sigma = Matrix::new(m, n);
+    let mut u = Matrix::identity(m);
+    let mut v = Matrix::identity(n);
     unimplemented!();
+    // sigma[[i, i]] = singular_values[i];
+    // need to return sorted svd
+}
+
+// ignore very small singular values
+pub fn rank(sigma: &Matrix) -> usize {
+    let mut rank = 0;
+    for i in 0..sigma.rows.min(sigma.cols) {
+        if sigma[[i, i]].abs() > 1e-12 { rank += 1 }
+    }
+    rank
+}
+
+pub fn rank_k_approximation(u: &Matrix, sigma: &Matrix, v: &Matrix, k: usize) -> Matrix {
+    let (m, n) = sigma.shape();
+    let u_k = u.slice(0..m, 0..k);
+    let sigma_k = sigma.slice(0..k, 0..k);
+    let v_k = v.slice(0..n, 0..k);
+    matrix_multiply(&u_k, &matrix_multiply(&sigma_k, &v_k.transpose()))
 }
 
 fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
-    assert_eq!(a.rows, b.rows);
-    assert_eq!(a.cols, b.cols);
+    assert_eq!(a.shape(), b.shape());
     for i in 0..a.rows {
         for j in 0..a.cols {
             let diff = (a[[i, j]] - b[[i, j]]).abs();
@@ -267,21 +275,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tall_bidiag() {
+    fn tall_bidiag() {
         let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
     }
 
     #[test]
-    fn test_square_bidiag() {
+    fn square_bidiag() {
         let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
         let (u, b, v) = householder_bidiag(&a);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
     }
 
     #[test]
-    fn test_wide_bidiag() {
+    fn wide_bidiag() {
         let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
