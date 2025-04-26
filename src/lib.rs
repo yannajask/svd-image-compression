@@ -81,6 +81,23 @@ impl Matrix {
         }
         Matrix::from_vec(m, n, &data)
     }
+
+    // https://www.sciencedirect.com/topics/engineering/givens-rotation
+    pub fn apply_left_givens(&mut self, c: f64, s: f64, i: usize, j: usize) {
+        for k in 0..self.cols {
+            let t = c * self[[i, k]] + s * self[[j, k]];
+            self[[j, k]] = -s * self[[i, k]] + c * self[[j, k]];
+            self[[i, k]] = t;
+        }
+    }
+
+    pub fn apply_right_givens(&mut self, c: f64, s: f64, i: usize, j: usize) {
+        for k in 0..self.rows {
+            let t = c * self[[k, i]] + s * self[[k, j]];
+            self[[k, j]] = -s * self[[k, i]] + c * self[[k, j]];
+            self[[k, i]] = t;
+        }
+    }
 }
 
 impl Index<[usize; 2]> for Matrix {
@@ -116,14 +133,6 @@ impl fmt::Display for Matrix {
             }
         }
         Ok(())
-    }
-}
-
-fn sign(x: f64) -> f64 {
-    if x > 0.0 {
-        1.0
-    } else {
-        -1.0
     }
 }
 
@@ -175,7 +184,7 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     for k in 0..m.min(n) {
         let x: Vec<f64> = (k..m).map(|i| b[[i, k]]).collect();
         let mut u_k = x.clone();
-        u_k[0] += sign(x[0]) * norm(&x);
+        u_k[0] += x[0].signum() * norm(&x);
         u_k = normalize(&u_k);
 
         // B[k:m, k:n] -= 2 * u_k (u_k^T * B[k:m, k:n])
@@ -203,7 +212,7 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         if k < n - 1 {
             let x: Vec<f64> = (k + 1..n).map(|j| b[[k, j]]).collect();
             let mut v_k = x.clone();
-            v_k[0] += sign(x[0]) * norm(&x);
+            v_k[0] += x[0].signum() * norm(&x);
             v_k = normalize(&v_k);
 
             // B[k:m, (k+1):n] -= 2 * (A[k:m, (k+1):n] * v_k) v_k^T
@@ -232,22 +241,39 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     (u, b, v)
 }
 
-// https://www.cs.utexas.edu/~inderjit/public_papers/HLA_SVD.pdf
-fn svd_bidiagonal(b: &Matrix) -> (Matrix, Matrix, Matrix) {
-    let (m, n) = b.shape();
-    let mut sigma = Matrix::new(m, n);
-    let mut u = Matrix::identity(m);
-    let mut v = Matrix::identity(n);
-    unimplemented!();
-    // sigma[[i, i]] = singular_values[i];
-    // need to return sorted svd
+pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
+    let (m, n) = a.shape();
+    let (mut u, mut b, mut v) = householder_bidiag(a);
+
+    
+
+
+    //(matrix_multiply(&u, &u_b), sigma, matrix_multiply(&v, &v_b))
+    unimplemented!()
 }
 
-// ignore very small singular values
+// https://en.wikipedia.org/wiki/Givens_rotation#Stable_calculation
+fn givens_rotation(a: f64, b: f64) -> (f64, f64, f64) {
+    if b == 0.0 {
+        (a.signum(), 0.0, a.abs())
+    } else if a == 0.0 {
+        (0.0, -b.signum(), b.abs())
+    } else if a.abs() > b.abs() {
+        let t = b / a;
+        let u = b.signum() * (1.0 + t * t).sqrt();
+        let c = 1.0 / u;
+        (c, -c * t, a * u)
+    } else {
+        let t = a / b;
+        let u = b.signum() * (1.0 + t * t).sqrt();
+        (t / u, -1.0 / u, b * u)
+    }
+}
+
 pub fn rank(sigma: &Matrix) -> usize {
     let mut rank = 0;
     for i in 0..sigma.rows.min(sigma.cols) {
-        if sigma[[i, i]].abs() > 1e-12 { rank += 1 }
+        if sigma[[i, i]] > 0.0 { rank += 1 }
     }
     rank
 }
@@ -260,19 +286,19 @@ pub fn rank_k_approximation(u: &Matrix, sigma: &Matrix, v: &Matrix, k: usize) ->
     matrix_multiply(&u_k, &matrix_multiply(&sigma_k, &v_k.transpose()))
 }
 
-fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
-    assert_eq!(a.shape(), b.shape());
-    for i in 0..a.rows {
-        for j in 0..a.cols {
-            let diff = (a[[i, j]] - b[[i, j]]).abs();
-            assert!(diff <= tol, "Mismatch at ({}, {}), A: {} vs. B: {}", i, j, a[[i, j]], b[[i, j]]);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
+        assert_eq!(a.shape(), b.shape());
+        for i in 0..a.rows {
+            for j in 0..a.cols {
+                let diff = (a[[i, j]] - b[[i, j]]).abs();
+                assert!(diff <= tol, "Mismatch at ({}, {}), A: {} vs. B: {}", i, j, a[[i, j]], b[[i, j]]);
+            }
+        }
+    }
 
     #[test]
     fn tall_bidiag() {
