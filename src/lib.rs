@@ -241,33 +241,77 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     (u, b, v)
 }
 
-pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
-    let (m, n) = a.shape();
-    let (mut u, mut b, mut v) = householder_bidiag(a);
-
-    
-
-
-    //(matrix_multiply(&u, &u_b), sigma, matrix_multiply(&v, &v_b))
-    unimplemented!()
-}
-
 // https://en.wikipedia.org/wiki/Givens_rotation#Stable_calculation
-fn givens_rotation(a: f64, b: f64) -> (f64, f64, f64) {
+fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     if b == 0.0 {
-        (a.signum(), 0.0, a.abs())
+        (a.signum(), 0.0)
     } else if a == 0.0 {
-        (0.0, -b.signum(), b.abs())
+        (0.0, -b.signum())
     } else if a.abs() > b.abs() {
         let t = b / a;
         let u = b.signum() * (1.0 + t * t).sqrt();
         let c = 1.0 / u;
-        (c, -c * t, a * u)
+        (c, -c * t)
     } else {
         let t = a / b;
         let u = b.signum() * (1.0 + t * t).sqrt();
-        (t / u, -1.0 / u, b * u)
+        (t / u, -1.0 / u)
     }
+}
+
+// https://dspace.mit.edu/bitstream/handle/1721.1/75282/18-335j-fall-2006/contents/lecture-notes/lec16.pdf
+// https://faculty.ucmerced.edu/mhyang/course/eecs275/lectures/lecture17.pdf
+// assumes m >= n
+fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix) {
+    let (m, n) = b.shape();
+
+    // get wilkinson shift
+    let delta = (b[[m - 2, n - 2]] - b[[m - 1, n - 1]]) / 2.0;
+    let b_m1 = b[[m - 2, n - 1]] * b[[m - 2, n - 1]];
+    let mu = b[[m - 1, n - 1]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+    let mut y = b[[0, 0]] - mu;
+    let mut z = b[[0, 1]];
+
+    // qr steps
+    for k in 0..(n - 1) {
+        // left rotation
+        let (c, s) = givens_rotation(y, z);
+        b.apply_left_givens(c, s, k, k + 1);
+        u.apply_left_givens(c, s, k, k + 1);
+
+        // right rotation
+        y = b[[k, k]];
+        z = b[[k + 1, k]];
+        let (c, s) = givens_rotation(y, z);
+        b.apply_right_givens(c, s, k, k + 1);
+        v.apply_right_givens(c, s, k, k + 1);
+
+        // update y and z
+        if k < n - 1 { 
+            y = b[[k, k + 1]];
+            z = b[[k, k + 2]];
+        }
+    }
+}
+
+fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
+    let (m, n) = a.shape();
+    let (mut u, mut b, mut v) = householder_bidiag(&a);
+
+    let mut q = 0;
+    let tol = 1e-12;
+
+    // transpose matrices if m < n
+    while q < n {
+        for i in 0..(n - 1) {
+            if b[[i, i + 1]].abs() < tol * (b[[i, i]].abs() + b[[i + 1, i + 1]].abs()) { b[[i, i + 1]] = 0.0 }
+        }
+        
+        // find largest q and smallest p such that B = diag(B11, B22, B33)
+        // where B33 is diagonal and B22 has nonzero superdiagonal
+
+    }
+    unimplemented!()
 }
 
 pub fn rank(sigma: &Matrix) -> usize {
