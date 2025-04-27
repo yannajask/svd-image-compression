@@ -1,5 +1,5 @@
 use image::{GrayImage, ImageBuffer, ImageReader, Luma};
-use svd_image_compression::{householder_bidiag, matrix_multiply, svd, Matrix};
+use svd_image_compression::{bidiagonalize, matrix_multiply, svd, Matrix};
 
 
 fn main() {
@@ -22,7 +22,7 @@ fn main() {
 
     let test = Matrix::from_vec(3, 3, &[35.0, 2.0, 3.0, 255.0, 5.0, 63.0, 7.0, 8.0, 9.0]);
     println!("A:\n{}", test);
-    let (u, b, v) = householder_bidiag(&test);
+    let (u, b, v) = bidiagonalize(&test);
     println!("V:\n{}", v);
     println!("B:\n{}", b);
     println!("U:\n{}", u);
@@ -30,7 +30,7 @@ fn main() {
 
     let test_t = test.transpose();
     println!("A^T:\n{}", test_t);
-    let (u, b, v) = householder_bidiag(&test_t);
+    let (u, b, v) = bidiagonalize(&test_t);
     println!("A^T:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
     println!("A:\n{}", matrix_multiply(&v, &matrix_multiply(&b.transpose(), &u.transpose())));
     /*

@@ -1,15 +1,11 @@
 use std::ops::{Index, IndexMut, Range};
+use std::mem::swap;
 use std::fmt;
 
 // to do:
 // -add proper asserts to constructors
 // -optimize matrix multiplication with strassen algorithm
-// -remove repeated for loops for bidiagonalization
 // -implement jacobi svd
-// -implement rank fn
-// -implement rank_k truncation fn
-// -implement is_bidiagonal, is_diagonal, is_orthogonal matrix fn's
-// -add unit tests for svd
 // -put functions in modules:
 // ---image_compression
 //     |---svd
@@ -25,8 +21,11 @@ pub struct Matrix {
 
 impl Matrix {
     /// Creates an `m` x `n` matrix with all its elements set to `0`.
+    /// 
+    /// Panics if one of `m` or `n` is zero.
     #[inline]
     pub fn new(m: usize, n: usize) -> Matrix {
+        assert!(m > 0 && n > 0, "Dimensions must be positive! Given: {}x{}", m, n);
         Matrix {
             data: vec![0.0; m * n],
             rows: m,
@@ -45,6 +44,8 @@ impl Matrix {
     }
 
     /// Creates an `n` x `n` identity matrix.
+    /// 
+    /// Panics if `n` is zero.
     #[inline]
     pub fn identity(n: usize) -> Matrix {
         let mut identity_matrix = Matrix::new(n, n);
@@ -66,23 +67,29 @@ impl Matrix {
         transposed
     }
 
+    /// Returns the dimensions (rows, columns) of a matrix.
     pub fn shape(&self) -> (usize, usize) {
         (self.rows, self.cols)
     }
 
-    pub fn slice(&self, row_range: Range<usize>, col_range: Range<usize>) -> Matrix {
+    /// Returns the submatrix given a range of zero-based indices.
+    /// 
+    /// Panics if indices are out of range of the matrix's dimensions.
+    pub fn slice(&self, rows: Range<usize>, cols: Range<usize>) -> Matrix {
+        assert!(rows.end <= self.rows && cols.end <= self.cols,
+                "Slice [{:#?}, {:#?}] must be within the dimensions {}x{}",
+                rows, cols, self.rows, self.cols);
         let mut data = Vec::new();
-        let m = row_range.end - row_range.start;
-        let n = col_range.end - col_range.start;
-        for i in row_range.start..row_range.end {
-            for j in col_range.start..col_range.end {
+        let m = rows.end - rows.start;
+        let n = cols.end - cols.start;
+        for i in rows.start..rows.end {
+            for j in cols.start..cols.end {
                 data.push(self[[i, j]]);
             }
         }
         Matrix::from_vec(m, n, &data)
     }
 
-    // https://www.sciencedirect.com/topics/engineering/givens-rotation
     pub fn apply_left_givens(&mut self, c: f64, s: f64, i: usize, j: usize) {
         for k in 0..self.cols {
             let t = c * self[[i, k]] + s * self[[j, k]];
@@ -103,6 +110,9 @@ impl Matrix {
 impl Index<[usize; 2]> for Matrix {
     type Output = f64;
     #[inline]
+    /// Returns the element of a matrix at the zero-based index (i, j).
+    /// 
+    /// Panics if `i` or `j` are outside the ranges `0 <= i <= m`, `0 <= j <= n`, respectively.
     fn index(&self, index: [usize; 2]) -> &Self::Output {
         let [i, j] = index;
         unsafe { self.data.get_unchecked(i * self.cols + j) }
@@ -111,6 +121,9 @@ impl Index<[usize; 2]> for Matrix {
 
 impl IndexMut<[usize; 2]> for Matrix {
     #[inline]
+    /// Returns a mutable reference to the element of a matrix at the zero-based index (i, j).
+    /// 
+    /// Panics if `i` or `j` are outside the ranges `0 <= i <= m`, `0 <= j <= n`, respectively.
     fn index_mut(&mut self, index: [usize; 2]) -> &mut Self::Output {
         let [i, j] = index;
         unsafe { self.data.get_unchecked_mut(i * self.cols + j) }
@@ -118,6 +131,7 @@ impl IndexMut<[usize; 2]> for Matrix {
 }
 
 impl fmt::Display for Matrix {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for i in 0..self.rows {
             write!(f, "[")?;
@@ -136,6 +150,8 @@ impl fmt::Display for Matrix {
     }
 }
 
+/// Computes the norm of a given vector.
+#[inline]
 fn norm(x: &[f64]) -> f64 {
     let mut norm_sq = 0.0_f64;
     for i in x {
@@ -144,6 +160,9 @@ fn norm(x: &[f64]) -> f64 {
     norm_sq.sqrt()
 }
 
+/// Normalizes a given vector. Returns the zero vector
+/// for norms within `1e-16`.
+#[inline]
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
     if norm < 1e-16 {
@@ -159,7 +178,7 @@ fn normalize(x: &[f64]) -> Vec<f64> {
 // to do: use strassen algorithm
 #[inline]
 pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
-    assert_eq!(a.cols, b.rows, "A must have the same number of columns as the number of rows in B.");
+    assert_eq!(a.cols, b.rows, "Mismatch of dimensions! A: {}x{} vs. B: {}x{}", a.rows, a.cols, b.rows, b.cols);
     let mut product = Matrix::new(a.rows, b.cols);
     for i in 0..a.rows {
         for j in 0..b.cols {
@@ -173,9 +192,15 @@ pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
     product
 }
 
-//https://www.math.iit.edu/~fass/477577_Chapter_12.pdf
-// to do: less repeated iteration when updating matrices or run in parallel
-pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
+/// Returns the bidiagonal decomposition of A = UBV^T.
+/// 
+/// U is an orthogonal `m` x `m` matrix,
+/// V is an orthogonal `n` x `n` matrix,
+/// and B is an `m` x `n` upper bidiagonal matrix.
+/// 
+/// Note that V is returned, not its transpose.
+#[inline]
+pub fn bidiagonalize(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let (m, n) = a.shape();
     let mut b = a.clone();           // bidiagonal matrix
     let mut u = Matrix::identity(m); // left reflections
@@ -241,7 +266,10 @@ pub fn householder_bidiag(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     (u, b, v)
 }
 
-// https://en.wikipedia.org/wiki/Givens_rotation#Stable_calculation
+/// Returns the Givens rotation coefficients `c` and `s`, given `a` and `b`.
+/// 
+/// https://en.wikipedia.org/wiki/Givens_rotation#Stable_calculation
+#[inline]
 fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     if b == 0.0 {
         (a.signum(), 0.0)
@@ -262,8 +290,11 @@ fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 // https://dspace.mit.edu/bitstream/handle/1721.1/75282/18-335j-fall-2006/contents/lecture-notes/lec16.pdf
 // https://faculty.ucmerced.edu/mhyang/course/eecs275/lectures/lecture17.pdf
 // assumes m >= n
+/// Panics if `b.rows` < `b.cols`.
+#[inline]
 fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
+    assert_eq!(m, n, "B cannot have more columns than rows: {}x{}", m, n);
 
     // get wilkinson shift
     let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
@@ -295,6 +326,14 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     }
 }
 
+/// Returns the bidiagonal decomposition of A = USV^T.
+/// 
+/// U is an orthogonal `m` x `m` matrix,
+/// V is an orthogonal `n` x `n` matrix,
+/// and S is an `m` x `n` matrix with the singular values of A on its diagonal.
+/// 
+/// Note that V is returned, not its transpose.
+#[inline]
 pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let (mut m, mut n) = a.shape();
     let (mut u, mut b, mut v);
@@ -302,21 +341,21 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 
     // transpose wide matrices where m < n
     if wide {
-        (v, b, u) = householder_bidiag(&a.transpose());
+        (v, b, u) = bidiagonalize(&a.transpose());
+        swap(&mut m, &mut n);
     } else {
-        (u, b, v) = householder_bidiag(&a);
+        (u, b, v) = bidiagonalize(&a);
     }
 
     if wide {
-        println!("A:\n{}", a);
-        println!("B:\n{}", b);
-        println!("B^T:\n{}", b.transpose());
         (v, b.transpose(), u)
     } else {
         (u, b, v)
     }
 }
 
+/// Returns the rank of a diagonal matrix.
+#[inline]
 pub fn rank(sigma: &Matrix) -> usize {
     let mut rank = 0;
     for i in 0..sigma.rows.min(sigma.cols) {
@@ -325,8 +364,11 @@ pub fn rank(sigma: &Matrix) -> usize {
     rank
 }
 
+/// Returns the rank `k` truncated matrices of an SVD USV^T.
+#[inline]
 pub fn rank_k_approximation(u: &Matrix, sigma: &Matrix, v: &Matrix, k: usize) -> Matrix {
     let (m, n) = sigma.shape();
+    assert!(m >= k && n >= k, "Cannot truncate a {}x{} matrix to {}x{}", m, n, k, k);
     let u_k = u.slice(0..m, 0..k);
     let sigma_k = sigma.slice(0..k, 0..k);
     let v_k = v.slice(0..n, 0..k);
@@ -367,7 +409,7 @@ mod tests {
     #[test]
     fn tall_bidiag() {
         let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let (u, b, v) = householder_bidiag(&a);
+        let (u, b, v) = bidiagonalize(&a);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
@@ -376,7 +418,7 @@ mod tests {
     #[test]
     fn square_bidiag() {
         let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
-        let (u, b, v) = householder_bidiag(&a);
+        let (u, b, v) = bidiagonalize(&a);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
@@ -385,7 +427,7 @@ mod tests {
     #[test]
     fn wide_bidiag() {
         let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let (u, b, v) = householder_bidiag(&a);
+        let (u, b, v) = bidiagonalize(&a);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
