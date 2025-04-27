@@ -20,7 +20,11 @@ fn main() {
     Ok(())
     */
 
-    let test = Matrix::from_vec(3, 3, &[35.0, 2.0, 3.0, 255.0, 5.0, 63.0, 7.0, 8.0, 9.0]);
+    let test = Matrix::from_vec(4, 4, 
+        &[6.0, 5.0, 0.0, 2.0,
+                5.0, 1.0, 14.0, 16.0,
+                14.0, 0.0, 2.0, 2.0,
+                5.0, 5.0, 11.0, 35.0]);
     println!("A:\n{}", test);
     let (u, b, v) = bidiagonalize(&test);
     println!("V:\n{}", v);

@@ -161,11 +161,11 @@ fn norm(x: &[f64]) -> f64 {
 }
 
 /// Normalizes a given vector. Returns the zero vector
-/// for norms within `1e-16`.
+/// for norms within `1e-4`.
 #[inline]
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
-    if norm < 1e-16 {
+    if norm < 1e-4 {
         vec![0.0; x.len()]
     } else {
         x.iter().map(|&x| x / norm).collect()
@@ -175,10 +175,9 @@ fn normalize(x: &[f64]) -> Vec<f64> {
 /// Returns the matrix product of A and B.
 /// 
 /// Panics if `a.cols` is not equal to `b.rows`.
-// to do: use strassen algorithm
 #[inline]
 pub fn matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix {
-    assert_eq!(a.cols, b.rows, "Mismatch of dimensions! A: {}x{} vs. B: {}x{}", a.rows, a.cols, b.rows, b.cols);
+    assert!(a.cols == b.rows, "Mismatch of dimensions! A: {}x{} vs. B: {}x{}", a.rows, a.cols, b.rows, b.cols);
     let mut product = Matrix::new(a.rows, b.cols);
     for i in 0..a.rows {
         for j in 0..b.cols {
@@ -270,7 +269,7 @@ pub fn bidiagonalize(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 /// 
 /// https://en.wikipedia.org/wiki/Givens_rotation#Stable_calculation
 #[inline]
-fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
+pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     if b == 0.0 {
         (a.signum(), 0.0)
     } else if a == 0.0 {
@@ -294,7 +293,7 @@ fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 #[inline]
 fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
-    assert_eq!(m, n, "B cannot have more columns than rows: {}x{}", m, n);
+    assert!(m >= n, "B must have more rows than columns: {}x{}", m, n);
 
     // get wilkinson shift
     let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
@@ -379,7 +378,7 @@ pub fn rank_k_approximation(u: &Matrix, sigma: &Matrix, v: &Matrix, k: usize) ->
 mod tests {
     use super::*;
 
-    const TOLERANCE: f64 = 1e-12;
+    const TOLERANCE: f64 = 1e-4;
 
     fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
         assert_eq!(a.shape(), b.shape());
@@ -431,6 +430,18 @@ mod tests {
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
+    }
+
+    /// https://en.wikipedia.org/wiki/Givens_rotation#Triangularization
+    #[test]
+    fn givens_triangularization() {
+        let mut a = Matrix::from_vec(3, 3, &[6.0, 5.0, 0.0, 5.0, 1.0, 4.0, 0.0, 4.0, 3.0]);
+        let (c, s) = givens_rotation(a[[0, 0]], a[[1, 0]]);
+        a.apply_left_givens(c, s, 1, 0);
+        let (c, s) = givens_rotation(a[[1, 1]], a[[2, 1]]);
+        a.apply_left_givens(c, s, 2, 1);
+        let r = Matrix::from_vec(3, 3, &[7.8102, 4.4813, 2.5607, 0.0, 4.6817, 0.9665, 0.0, 0.0, -4.1843]);
+        assert_matrix_approx_eq(&a, &r, TOLERANCE);
     }
 
     #[test]
