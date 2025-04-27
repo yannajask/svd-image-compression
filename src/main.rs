@@ -1,5 +1,5 @@
 use image::{GrayImage, ImageBuffer, ImageReader, Luma};
-use svd_image_compression::{householder_bidiag, matrix_multiply, Matrix};
+use svd_image_compression::{householder_bidiag, matrix_multiply, svd, Matrix};
 
 
 fn main() {
@@ -27,6 +27,12 @@ fn main() {
     println!("B:\n{}", b);
     println!("U:\n{}", u);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
+
+    let (u, sigma, v) = svd(&test);
+    println!("V:\n{}", v);
+    println!("S:\n{}", sigma);
+    println!("U:\n{}", b);
+    println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&sigma, &v.transpose())));
 }
 
 // want to move these to lib.rs later

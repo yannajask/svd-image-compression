@@ -147,7 +147,7 @@ fn norm(x: &[f64]) -> f64 {
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
     if norm < 1e-16 {
-        vec![0.0, x.len() as f64]
+        vec![0.0; x.len()]
     } else {
         x.iter().map(|&x| x / norm).collect()
     }
@@ -267,10 +267,11 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
 
     // get wilkinson shift
     let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
-    let b_m1 = b[[q - 2, q - 1]] * b[[m - 2, n - 1]];
+    let b_m1 = b[[q - 2, q - 1]] * b[[q - 2, q - 1]];
     let mu = b[[q - 1, q - 1]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+
     let mut y = b[[p, p]] - mu;
-    let mut z = b[[p, p]];
+    let mut z = b[[p, p + 1]];
 
     // qr steps
     for k in p..(q - 1) {
@@ -294,49 +295,90 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     }
 }
 
-fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
-    let (m, n) = a.shape();
-    let (mut u, mut b, mut v) = householder_bidiag(&a);
+pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
+    let (mut m, mut n) = a.shape();
+    let (mut u, mut b, mut v);
+    let wide = m < n;
+
+    // transpose wide matrices where m < n
+    if wide {
+        (v, b, u) = householder_bidiag(&a.transpose());
+        std::mem::swap(&mut m, &mut n);
+    } else {
+        (u, b, v) = householder_bidiag(&a);
+    }
+    println!("bidiagonalized matrix");
 
     let mut q = 0;
     let tol = 1e-12;
 
-    // transpose matrices if m < n
-    while q < n {
+    while q < n - 1 {
+        println!("q: {}", q);
+        // zero small superdiagonal entries
         for i in 0..(n - 1) {
-            if b[[i, i + 1]].abs() < tol * (b[[i, i]].abs() + b[[i + 1, i + 1]].abs()) { b[[i, i + 1]] = 0.0 }
+            if b[[i, i + 1]].abs() < tol * (b[[i, i]].abs() + b[[i + 1, i + 1]].abs()) {
+                println!("B zeroed out at {}, {}", i, i + 1);
+                b[[i, i + 1]] = 0.0;
+            }
         }
         
         // find largest q and smallest p such that B = diag(B11, B22, B33)
         // where B33 is diagonal and B22 has nonzero superdiagonal
-        for i in (0..n).rev() {
+        q = 0;
+        for i in (0..(n - 1)).rev() {
             if b[[i, i + 1]].abs() > 0.0 {
                 q = i + 1;
                 break;
             }
         }
 
+        if q == 0 {
+            println!("Breaking loop because q == 0");
+            break;
+        }
+
         let mut p = 0;
-        for i in 0..q {
-            if b[[i, i]].abs() == 0.0 {
+        for i in (0..q).rev() {
+            if b[[i, i + 1]].abs() == 0.0 {
                 p = i + 1;
                 break;
             }
         }
 
-        if q < n {
-            let b22 = b.slice(p..m, q..n);
-            let d: Vec<f64> = (0..n).map(|i| b[[i, i]]).collect();
-            if d.iter().find(|&&x| x == 0.0).is_some() {
+        println!("Q: {}, P: {}", q, p);
 
-            } else {
-                // this needs to be done on b22
-                qr_step(&mut u, &mut b, &mut v);
+        if q - p == 1 {
+            if b[[p, p]] < 0.0 {
+                b[[p, p]] = -b[[p, p]];
+                for i in 0..m {
+                    u[[i, p]] = -u[[i, p]];
+                }
+            }
+            q -= 1;
+        } else if q < n {
+            println!("QR step on p = {}, q = {}", p, q);
+            qr_step(&mut u, &mut b, &mut v, p, q);
+            for i in 0..(n - 1) {
+                println!("b[{}, {}]: {}", i, i + 1, b[[i, i + 1]]);
             }
         }
-
     }
-    unimplemented!()
+
+    // make singular values positive
+    for i in 0..n {
+        if b[[i, i]] < 0.0 {
+            b[[i, i]] = -b[[i, i]];
+            for j in 0..n {
+                v[[j, i]] = -v[[j, i]];
+            }
+        }
+    }
+
+    if wide {
+        (v, b.transpose(), u)
+    } else {
+        (u, b, v)
+    }
 }
 
 pub fn rank(sigma: &Matrix) -> usize {
