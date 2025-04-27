@@ -262,18 +262,18 @@ fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 // https://dspace.mit.edu/bitstream/handle/1721.1/75282/18-335j-fall-2006/contents/lecture-notes/lec16.pdf
 // https://faculty.ucmerced.edu/mhyang/course/eecs275/lectures/lecture17.pdf
 // assumes m >= n
-fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix) {
+fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
 
     // get wilkinson shift
-    let delta = (b[[m - 2, n - 2]] - b[[m - 1, n - 1]]) / 2.0;
-    let b_m1 = b[[m - 2, n - 1]] * b[[m - 2, n - 1]];
-    let mu = b[[m - 1, n - 1]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
-    let mut y = b[[0, 0]] - mu;
-    let mut z = b[[0, 1]];
+    let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
+    let b_m1 = b[[q - 2, q - 1]] * b[[m - 2, n - 1]];
+    let mu = b[[q - 1, q - 1]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+    let mut y = b[[p, p]] - mu;
+    let mut z = b[[p, p]];
 
     // qr steps
-    for k in 0..(n - 1) {
+    for k in p..(q - 1) {
         // left rotation
         let (c, s) = givens_rotation(y, z);
         b.apply_left_givens(c, s, k, k + 1);
@@ -287,7 +287,7 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix) {
         v.apply_right_givens(c, s, k, k + 1);
 
         // update y and z
-        if k < n - 1 { 
+        if k < q - 2 { 
             y = b[[k, k + 1]];
             z = b[[k, k + 2]];
         }
@@ -309,6 +309,31 @@ fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         
         // find largest q and smallest p such that B = diag(B11, B22, B33)
         // where B33 is diagonal and B22 has nonzero superdiagonal
+        for i in (0..n).rev() {
+            if b[[i, i + 1]].abs() > 0.0 {
+                q = i + 1;
+                break;
+            }
+        }
+
+        let mut p = 0;
+        for i in 0..q {
+            if b[[i, i]].abs() == 0.0 {
+                p = i + 1;
+                break;
+            }
+        }
+
+        if q < n {
+            let b22 = b.slice(p..m, q..n);
+            let d: Vec<f64> = (0..n).map(|i| b[[i, i]]).collect();
+            if d.iter().find(|&&x| x == 0.0).is_some() {
+
+            } else {
+                // this needs to be done on b22
+                qr_step(&mut u, &mut b, &mut v);
+            }
+        }
 
     }
     unimplemented!()
