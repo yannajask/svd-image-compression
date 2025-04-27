@@ -28,11 +28,18 @@ fn main() {
     println!("U:\n{}", u);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
 
+    let test_t = test.transpose();
+    println!("A^T:\n{}", test_t);
+    let (u, b, v) = householder_bidiag(&test_t);
+    println!("A^T:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
+    println!("A:\n{}", matrix_multiply(&v, &matrix_multiply(&b.transpose(), &u.transpose())));
+    /*
     let (u, sigma, v) = svd(&test);
     println!("V:\n{}", v);
     println!("S:\n{}", sigma);
     println!("U:\n{}", b);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&sigma, &v.transpose())));
+    */
 }
 
 // want to move these to lib.rs later

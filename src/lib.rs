@@ -303,78 +303,14 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     // transpose wide matrices where m < n
     if wide {
         (v, b, u) = householder_bidiag(&a.transpose());
-        std::mem::swap(&mut m, &mut n);
     } else {
         (u, b, v) = householder_bidiag(&a);
     }
-    println!("bidiagonalized matrix");
-
-    let mut q = 0;
-    let tol = 1e-12;
-
-    while q < n - 1 {
-        println!("q: {}", q);
-        // zero small superdiagonal entries
-        for i in 0..(n - 1) {
-            if b[[i, i + 1]].abs() < tol * (b[[i, i]].abs() + b[[i + 1, i + 1]].abs()) {
-                println!("B zeroed out at {}, {}", i, i + 1);
-                b[[i, i + 1]] = 0.0;
-            }
-        }
-        
-        // find largest q and smallest p such that B = diag(B11, B22, B33)
-        // where B33 is diagonal and B22 has nonzero superdiagonal
-        q = 0;
-        for i in (0..(n - 1)).rev() {
-            if b[[i, i + 1]].abs() > 0.0 {
-                q = i + 1;
-                break;
-            }
-        }
-
-        if q == 0 {
-            println!("Breaking loop because q == 0");
-            break;
-        }
-
-        let mut p = 0;
-        for i in (0..q).rev() {
-            if b[[i, i + 1]].abs() == 0.0 {
-                p = i + 1;
-                break;
-            }
-        }
-
-        println!("Q: {}, P: {}", q, p);
-
-        if q - p == 1 {
-            if b[[p, p]] < 0.0 {
-                b[[p, p]] = -b[[p, p]];
-                for i in 0..m {
-                    u[[i, p]] = -u[[i, p]];
-                }
-            }
-            q -= 1;
-        } else if q < n {
-            println!("QR step on p = {}, q = {}", p, q);
-            qr_step(&mut u, &mut b, &mut v, p, q);
-            for i in 0..(n - 1) {
-                println!("b[{}, {}]: {}", i, i + 1, b[[i, i + 1]]);
-            }
-        }
-    }
-
-    // make singular values positive
-    for i in 0..n {
-        if b[[i, i]] < 0.0 {
-            b[[i, i]] = -b[[i, i]];
-            for j in 0..n {
-                v[[j, i]] = -v[[j, i]];
-            }
-        }
-    }
 
     if wide {
+        println!("A:\n{}", a);
+        println!("B:\n{}", b);
+        println!("B^T:\n{}", b.transpose());
         (v, b.transpose(), u)
     } else {
         (u, b, v)
@@ -401,6 +337,8 @@ pub fn rank_k_approximation(u: &Matrix, sigma: &Matrix, v: &Matrix, k: usize) ->
 mod tests {
     use super::*;
 
+    const TOLERANCE: f64 = 1e-12;
+
     fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
         assert_eq!(a.shape(), b.shape());
         for i in 0..a.rows {
@@ -411,24 +349,72 @@ mod tests {
         }
     }
 
+    fn assert_orthogonal(a: &Matrix, tol: f64) {
+        let (m, n) = a.shape();
+        assert_eq!(m, n);
+        let a_t = a.transpose();
+
+        // create I, AA^T, (A^T)A
+        let identity = Matrix::identity(n);
+        let aa_t = matrix_multiply(&a, &a_t);
+        let a_ta = matrix_multiply(&a_t, &a);
+
+        // check for equality within certain tolerance
+        assert_matrix_approx_eq(&aa_t, &identity, tol);
+        assert_matrix_approx_eq(&a_ta, &identity, tol);
+    }
+
     #[test]
     fn tall_bidiag() {
         let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
     }
 
     #[test]
     fn square_bidiag() {
         let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
     }
 
     #[test]
     fn wide_bidiag() {
         let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let (u, b, v) = householder_bidiag(&a);
-        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), 1e-12);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())), TOLERANCE);
+    }
+
+    #[test]
+    fn tall_svd() {
+        let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let (u, s, v) = svd(&a);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
+    }
+
+    #[test]
+    fn square_svd() {
+        let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        let (u, s, v) = svd(&a);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
+    }
+
+    #[test]
+    fn wide_svd() {
+        let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let (u, s, v) = svd(&a);
+        assert_orthogonal(&u, TOLERANCE);
+        assert_orthogonal(&v, TOLERANCE);
+        assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
     }
 }
