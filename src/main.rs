@@ -40,7 +40,7 @@ fn main() {
     let (u, sigma, v) = svd(&test);
     println!("V:\n{}", v);
     println!("S:\n{}", sigma);
-    println!("U:\n{}", b);
+    println!("U:\n{}", u);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&sigma, &v.transpose())));
 }
 

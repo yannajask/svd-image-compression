@@ -151,11 +151,11 @@ fn norm(x: &[f64]) -> f64 {
 }
 
 /// Normalizes a given vector. Returns the zero vector
-/// for norms within `1e-4`.
+/// for norms within `1e-16`.
 #[inline]
 fn normalize(x: &[f64]) -> Vec<f64> {
     let norm = norm(x);
-    if norm < 1e-4 {
+    if norm < 1e-16 {
         vec![0.0; x.len()]
     } else {
         x.iter().map(|&x| x / norm).collect()
@@ -285,7 +285,7 @@ pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
     assert!(m >= n, "B must have more rows than columns: {}x{}", m, n);
-    assert!(q - p > 0, "Given p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
+    assert!(q - p > 0, "Indices p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
 
     // get wilkinson shift
     let a_qm1 = b[[q - 1, q -1]];
@@ -306,16 +306,14 @@ pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usiz
         // right rotation
         let (c, s) = givens_rotation(y, z);
         b.apply_right_givens(c, s, k, k + 1, p, q);
-        v.apply_right_givens(c, s, k, k + 1, p, q);
-        println!("after right:\n{}", b);
+        v.apply_right_givens(c, s, k, k + 1, 0, n - 1);
 
         // left rotation
         y = b[[k, k]];
         z = b[[k + 1, k]];
         let (c, s) = givens_rotation(y, z);
         b.apply_left_givens(c, s, k + 1, k, p, q);
-        u.apply_left_givens(c, s, k + 1, k, p, q);
-        println!("after left:\n{}", b);
+        u.apply_right_givens(c, -s, k + 1, k, 0, m - 1);
 
         // update y and z
         if p < q - 1 {
@@ -340,17 +338,18 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 
     // transpose wide matrices where m < n
     if wide {
-        (v, b, u) = bidiagonalize(&a.transpose());
+        (u, b, v) = bidiagonalize(&a.transpose());
         swap(&mut m, &mut n);
     } else {
         (u, b, v) = bidiagonalize(&a);
     }
 
+    println!("U Matrix after bidiagonalization:\n{}", u);
+
     let tol = 1e-16;
     let mut q = n - 1;
     
     while q > 0 {
-        println!("{}\n", b);
         for i in 0..(n - 1) {
             if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
                 b[[i, i + 1]] = 0.0;
@@ -374,7 +373,6 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
             }
         }
 
-        println!("P: {}, Q: {}", p, q);
         let mut found_zero = false;
         for k in p..q {
             if b[[k, k]].abs() < tol {
@@ -388,7 +386,7 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
                 if b[[k, k]].abs() < tol {
                     let (c, s) = givens_rotation(b[[k, k + 1]], b[[k + 1, k + 1]]);
                     b.apply_left_givens(c, s, k + 1, k, k, q);
-                    u.apply_left_givens(c, s, k + 1, k, k, q);
+                    u.apply_right_givens(c, -s, k + 1, k, 0, m - 1);
                 }
             }
             continue;
@@ -396,9 +394,12 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         qr_step(&mut u, &mut b, &mut v, p, q);
     }
 
+    // TO DO: order columns from largest to smallest singular values
+
     if wide {
         (v, b.transpose(), u)
     } else {
+        println!("U Matrix after SVD:\n{}", u);
         (u, b, v)
     }
 }
@@ -406,8 +407,9 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 /// Returns the rank of a diagonal matrix.
 #[inline]
 pub fn rank(sigma: &Matrix) -> usize {
+    let (m, n) = sigma.shape();
     let mut rank = 0;
-    for i in 0..sigma.rows.min(sigma.cols) {
+    for i in 0..m.min(n) {
         if sigma[[i, i]] > 0.0 { rank += 1 }
     }
     rank
