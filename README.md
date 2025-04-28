@@ -17,4 +17,6 @@ $ cargo build --release
 $ ./target/svd-image-compression <path_to_image>
 ```
 
+Optionally you may also pass in `max_iterations` as a second argument. By default, this is set to 500.
+
 Note that large images will take longer to compress.
