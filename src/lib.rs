@@ -65,6 +65,7 @@ impl Matrix {
     /// Returns the submatrix given a range of zero-based indices.
     /// 
     /// Panics if indices are out of range of the matrix's dimensions.
+    #[inline]
     pub fn slice(&self, rows: Range<usize>, cols: Range<usize>) -> Matrix {
         assert!(rows.end <= self.rows && cols.end <= self.cols,
                 "Slice [{:#?}, {:#?}] must be within the dimensions {}x{}",
@@ -93,6 +94,28 @@ impl Matrix {
             let t = c * self[[k, i]] - s * self[[k, j]];
             self[[k, j]] = s * self[[k, i]] + c * self[[k, j]];
             self[[k, i]] = t;
+        }
+    }
+
+    /// Swaps the columns at zero-based indices `i` and `j`.
+    /// 
+    /// Panics if `i, j >= self.cols`.
+    #[inline]
+    pub fn swap_columns(&mut self, i: usize, j: usize) {
+        assert!(i < self.cols && j < self.cols, "Cannot swap out of bounds indices! i: {}, j: {}", i, j);
+        for k in 0..self.rows {
+            let t = self[[k, i]];
+            self[[k, i]] = self[[k, j]];
+            self[[k, j]] = t;
+        }
+    }
+
+    pub fn map_column<F>(&mut self, j: usize, map: F)
+    where
+        F: Fn(f64) -> f64,
+    {
+        for i in 0..self.rows {
+            self[[i, j]] = map(self[[i, j]]);
         }
     }
 }
@@ -344,11 +367,10 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         (u, b, v) = bidiagonalize(&a);
     }
 
-    println!("U Matrix after bidiagonalization:\n{}", u);
-
     let tol = 1e-16;
     let mut q = n - 1;
     
+    // let B converge to a diagonal matrix
     while q > 0 {
         for i in 0..(n - 1) {
             if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
@@ -394,12 +416,37 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         qr_step(&mut u, &mut b, &mut v, p, q);
     }
 
-    // TO DO: order columns from largest to smallest singular values
+    // sort singular values in decreasing order
+    let mn = m.min(n);
+    let mut singular_values: Vec<f64> = (0..mn).map(|k| b[[k, k]]).collect();
+    let mut indices: Vec<usize> = (0..mn).collect();
 
+    // make singular values positive
+    for k in 0..mn {
+        if singular_values[k] < 0.0 {
+            singular_values[k] = -singular_values[k];
+            u.map_column(k, |x| -x);
+            b.map_column(k, |x| -x);
+        }
+    }
+    
+    indices.sort_by(|&a, &b| singular_values[b].partial_cmp(&singular_values[a]).unwrap());
+    singular_values.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+    // swap columns if necessary
+    for i in 0..mn {
+        let j = indices[i];
+        if i != j {
+            u.swap_columns(i, j);
+            b.swap_columns(i, j);
+            v.swap_columns(i, j);
+        }
+    }
+
+    // return transpose if m < n
     if wide {
         (v, b.transpose(), u)
     } else {
-        println!("U Matrix after SVD:\n{}", u);
         (u, b, v)
     }
 }
