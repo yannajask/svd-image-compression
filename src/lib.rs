@@ -2,16 +2,6 @@ use std::ops::{Index, IndexMut, Range};
 use std::mem::swap;
 use std::fmt;
 
-// to do:
-// -add proper asserts to constructors
-// -optimize matrix multiplication with strassen algorithm
-// -implement jacobi svd
-// -put functions in modules:
-// ---image_compression
-//     |---svd
-//     |---image_to_matrix
-
-
 #[derive(Debug, Clone)]
 pub struct Matrix {
     pub data: Vec<f64>,
@@ -286,14 +276,16 @@ pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     }
 }
 
-// https://dspace.mit.edu/bitstream/handle/1721.1/75282/18-335j-fall-2006/contents/lecture-notes/lec16.pdf
-// https://faculty.ucmerced.edu/mhyang/course/eecs275/lectures/lecture17.pdf
-// assumes m >= n
+/// 
+///
 /// Panics if `b.rows` < `b.cols`.
+/// 
+/// https://utminers.utep.edu/xzeng/2017spring_math5330/MATH_5330_Computational_Methods_of_Linear_Algebra_files/ln15.pdf
 #[inline]
 fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
     assert!(m >= n, "B must have more rows than columns: {}x{}", m, n);
+    assert!(q - p >= 2, "Given p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
 
     // get wilkinson shift
     let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
@@ -305,17 +297,17 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
 
     // qr steps
     for k in p..(q - 1) {
-        // left rotation
-        let (c, s) = givens_rotation(y, z);
-        b.apply_left_givens(c, s, k, k + 1);
-        u.apply_left_givens(c, s, k, k + 1);
-
         // right rotation
-        y = b[[k, k]];
-        z = b[[k + 1, k]];
         let (c, s) = givens_rotation(y, z);
         b.apply_right_givens(c, s, k, k + 1);
         v.apply_right_givens(c, s, k, k + 1);
+
+        // left rotation
+        y = b[[k, k]];
+        z = b[[k + 1, k]];
+        let (c, s) = givens_rotation(y, z);
+        b.apply_left_givens(c, s, k, k + 1);
+        u.apply_left_givens(c, s, k, k + 1);
 
         // update y and z
         if k < q - 2 { 
@@ -344,6 +336,57 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         swap(&mut m, &mut n);
     } else {
         (u, b, v) = bidiagonalize(&a);
+    }
+
+    let tol = 1e-4;
+    let mut q = 0;
+    
+    loop {
+        for i in 0..(n - 1) {
+            if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
+                b[[i, i + 1]] = 0.0;
+            }
+        }
+
+        for k in (0..(n - 1)).rev() {
+            println!("kq: {}", k);
+            if b[[k, k + 1]].abs() > tol {
+                q = k + 2;
+                break;
+            }
+        }
+
+        if q == 0 { break }
+
+        let mut p = 0;
+        for k in (0..(q - 1)).rev() {
+            println!("k: {}", k);
+            if b[[k, k + 1]].abs() < tol {
+                p = k + 1;
+                break;
+            }
+        }
+
+        let mut has_zero = false;
+        for k in p..q {
+            if b[[k, k]].abs() < tol {
+                has_zero = true;
+
+                for i in k..(q - 1) {
+                    let (c, s) = givens_rotation(b[[k, i]], b[[k + 1, i]]);
+                    b.apply_left_givens(c, s, k + 1, i);
+                    u.apply_left_givens(c, s, k + 1, i);
+                }
+
+            }
+        }
+
+        println!("P: {}, Q: {}", p, q);
+        if !has_zero && p < q - 1 {
+            qr_step(&mut u, &mut b, &mut v, p, q);
+        }
+
+        println!("{}\n", b);
     }
 
     if wide {
