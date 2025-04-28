@@ -307,7 +307,6 @@ pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usiz
         let (c, s) = givens_rotation(y, z);
         b.apply_right_givens(c, s, k, k + 1, p, q);
         v.apply_right_givens(c, s, k, k + 1, p, q);
-
         println!("after right:\n{}", b);
 
         // left rotation
@@ -316,7 +315,6 @@ pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usiz
         let (c, s) = givens_rotation(y, z);
         b.apply_left_givens(c, s, k + 1, k, p, q);
         u.apply_left_givens(c, s, k + 1, k, p, q);
-
         println!("after left:\n{}", b);
 
         // update y and z
@@ -352,6 +350,7 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
     let mut q = n - 1;
     
     while q > 0 {
+        println!("{}\n", b);
         for i in 0..(n - 1) {
             if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
                 b[[i, i + 1]] = 0.0;
@@ -360,26 +359,24 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 
         q = 0;
         for k in (0..(n - 1)).rev() {
-            println!("kq: {}", k);
             if b[[k, k + 1]].abs() > tol {
                 q = k + 1;
                 break;
             }
         }
-
         if q == 0 { break }
 
         let mut p = 0;
         for k in (0..(q - 1)).rev() {
-            println!("k: {}", k);
             if b[[k, k + 1]].abs() < tol {
                 p = k + 1;
                 break;
             }
         }
 
+        println!("P: {}, Q: {}", p, q);
         let mut found_zero = false;
-        for k in p..=q {
+        for k in p..q {
             if b[[k, k]].abs() < tol {
                 found_zero = true;
                 break;
@@ -391,15 +388,12 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
                 if b[[k, k]].abs() < tol {
                     let (c, s) = givens_rotation(b[[k, k + 1]], b[[k + 1, k + 1]]);
                     b.apply_left_givens(c, s, k + 1, k, k, q);
-                    u.apply_left_givens(c, s, k + 1, k, 0, n - 1);
+                    u.apply_left_givens(c, s, k + 1, k, k, q);
                 }
             }
             continue;
         }
-
-        println!("P: {}, Q: {}", p, q);
         qr_step(&mut u, &mut b, &mut v, p, q);
-        println!("{}\n", b);
     }
 
     if wide {
