@@ -80,16 +80,16 @@ impl Matrix {
         Matrix::from_vec(m, n, &data)
     }
 
-    pub fn apply_left_givens(&mut self, c: f64, s: f64, i: usize, j: usize) {
-        for k in 0..self.cols {
+    pub fn apply_left_givens(&mut self, c: f64, s: f64, i: usize, j: usize, p: usize, q: usize) {
+        for k in p..(q + 1) {
             let t = c * self[[i, k]] + s * self[[j, k]];
             self[[j, k]] = -s * self[[i, k]] + c * self[[j, k]];
             self[[i, k]] = t;
         }
     }
 
-    pub fn apply_right_givens(&mut self, c: f64, s: f64, i: usize, j: usize) {
-        for k in 0..self.rows {
+    pub fn apply_right_givens(&mut self, c: f64, s: f64, i: usize, j: usize, p: usize, q: usize) {
+        for k in p..(q + 1) {
             let t = c * self[[k, i]] + s * self[[k, j]];
             self[[k, j]] = -s * self[[k, i]] + c * self[[k, j]];
             self[[k, i]] = t;
@@ -285,35 +285,43 @@ pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
     assert!(m >= n, "B must have more rows than columns: {}x{}", m, n);
-    assert!(q - p >= 2, "Given p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
+    assert!(q - p > 0, "Given p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
 
     // get wilkinson shift
-    let delta = (b[[q - 2, q - 2]] - b[[q - 1, q - 1]]) / 2.0;
-    let b_m1 = b[[q - 2, q - 1]] * b[[q - 2, q - 1]];
-    let mu = b[[q - 1, q - 1]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+    // i just realized i have to implicitly get the shift from T = B^TB, not B
+    let am_1 = b[[q - 1, q - 1]] * b[[q - 1, q - 1]];
+    let am = b[[q, q - 1]] * b[[q, q - 1]] + b[[q, q]] * b[[q, q]];
+    let bm_1 = b[[q - 1, q]] * (b[[q - 1, q - 1]] + b[[q, q]]);
 
-    let mut y = b[[p, p]] - mu;
-    let mut z = b[[p, p + 1]];
+    let delta = (am_1 - am) / 2.0;
+    let mu = am - (delta.signum() * bm_1 * bm_1) / (delta.abs() + (delta * delta + bm_1 * bm_1).sqrt());
+    //let delta = (b[[q - 1, q - 1]] - b[[q, q]]) / 2.0;
+    //let b_m1 = b[[q - 1, q]] * b[[q - 1, q]];
+    //let mu = b[[q, q]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+
+    let t_11 = b[[p, p]] * b[[p, p]];
+    let t_12 = b[[p, p]] * b[[p, p + 1]];
+
+    let mut y = t_11 - mu;
+    let mut z = t_12;
 
     // qr steps
     for k in p..(q - 1) {
         // right rotation
         let (c, s) = givens_rotation(y, z);
-        b.apply_right_givens(c, s, k, k + 1);
-        v.apply_right_givens(c, s, k, k + 1);
+        b.apply_right_givens(c, s, k, k + 1, p, q);
+        v.apply_right_givens(c, s, k, k + 1, p, q);
 
         // left rotation
         y = b[[k, k]];
         z = b[[k + 1, k]];
         let (c, s) = givens_rotation(y, z);
-        b.apply_left_givens(c, s, k, k + 1);
-        u.apply_left_givens(c, s, k, k + 1);
+        b.apply_left_givens(c, s, k, k + 1, p, q);
+        u.apply_left_givens(c, s, k, k + 1, p, q);
 
         // update y and z
-        if k < q - 2 { 
-            y = b[[k, k + 1]];
-            z = b[[k, k + 2]];
-        }
+        y = b[[k, k + 1]];
+        z = b[[k, k + 2]];
     }
 }
 
@@ -338,7 +346,7 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         (u, b, v) = bidiagonalize(&a);
     }
 
-    let tol = 1e-4;
+    let tol = 1e-12;
     let mut q = 0;
     
     loop {
@@ -351,7 +359,7 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         for k in (0..(n - 1)).rev() {
             println!("kq: {}", k);
             if b[[k, k + 1]].abs() > tol {
-                q = k + 2;
+                q = k + 1;
                 break;
             }
         }
@@ -368,21 +376,20 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         }
 
         let mut has_zero = false;
-        for k in p..q {
+        for k in p..(q - 1) {
             if b[[k, k]].abs() < tol {
                 has_zero = true;
 
                 for i in k..(q - 1) {
                     let (c, s) = givens_rotation(b[[k, i]], b[[k + 1, i]]);
-                    b.apply_left_givens(c, s, k + 1, i);
-                    u.apply_left_givens(c, s, k + 1, i);
+                    b.apply_left_givens(c, s, k + 1, i, p, q);
+                    u.apply_left_givens(c, s, k + 1, i, p, q);
                 }
-
             }
         }
 
         println!("P: {}, Q: {}", p, q);
-        if !has_zero && p < q - 1 {
+        if !has_zero && p < q {
             qr_step(&mut u, &mut b, &mut v, p, q);
         }
 
@@ -480,9 +487,9 @@ mod tests {
     fn givens_triangularization() {
         let mut a = Matrix::from_vec(3, 3, &[6.0, 5.0, 0.0, 5.0, 1.0, 4.0, 0.0, 4.0, 3.0]);
         let (c, s) = givens_rotation(a[[0, 0]], a[[1, 0]]);
-        a.apply_left_givens(c, s, 1, 0);
+        a.apply_left_givens(c, s, 1, 0, 0, 2);
         let (c, s) = givens_rotation(a[[1, 1]], a[[2, 1]]);
-        a.apply_left_givens(c, s, 2, 1);
+        a.apply_left_givens(c, s, 2, 1, 0, 2);
         let r = Matrix::from_vec(3, 3, &[7.8102, 4.4813, 2.5607, 0.0, 4.6817, 0.9665, 0.0, 0.0, -4.1843]);
         assert_matrix_approx_eq(&a, &r, TOLERANCE);
     }
