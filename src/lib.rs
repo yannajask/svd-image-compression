@@ -81,7 +81,7 @@ impl Matrix {
     }
 
     pub fn apply_left_givens(&mut self, c: f64, s: f64, i: usize, j: usize, p: usize, q: usize) {
-        for k in p..(q + 1) {
+        for k in p..=q {
             let t = c * self[[i, k]] + s * self[[j, k]];
             self[[j, k]] = -s * self[[i, k]] + c * self[[j, k]];
             self[[i, k]] = t;
@@ -89,9 +89,9 @@ impl Matrix {
     }
 
     pub fn apply_right_givens(&mut self, c: f64, s: f64, i: usize, j: usize, p: usize, q: usize) {
-        for k in p..(q + 1) {
-            let t = c * self[[k, i]] + s * self[[k, j]];
-            self[[k, j]] = -s * self[[k, i]] + c * self[[k, j]];
+        for k in p..=q {
+            let t = c * self[[k, i]] - s * self[[k, j]];
+            self[[k, j]] = s * self[[k, i]] + c * self[[k, j]];
             self[[k, i]] = t;
         }
     }
@@ -282,22 +282,18 @@ pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 /// 
 /// https://utminers.utep.edu/xzeng/2017spring_math5330/MATH_5330_Computational_Methods_of_Linear_Algebra_files/ln15.pdf
 #[inline]
-fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
+pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let (m, n) = b.shape();
     assert!(m >= n, "B must have more rows than columns: {}x{}", m, n);
     assert!(q - p > 0, "Given p and q must make at least a 2x2 submatrix! p: {}, q: {}", p, q);
 
     // get wilkinson shift
-    // i just realized i have to implicitly get the shift from T = B^TB, not B
-    let am_1 = b[[q - 1, q - 1]] * b[[q - 1, q - 1]];
-    let am = b[[q, q - 1]] * b[[q, q - 1]] + b[[q, q]] * b[[q, q]];
-    let bm_1 = b[[q - 1, q]] * (b[[q - 1, q - 1]] + b[[q, q]]);
+    let a_qm1 = b[[q - 1, q -1]];
+    let b_qm1 = b[[q - 1, q]];
+    let a_q = b[[q, q]];
 
-    let delta = (am_1 - am) / 2.0;
-    let mu = am - (delta.signum() * bm_1 * bm_1) / (delta.abs() + (delta * delta + bm_1 * bm_1).sqrt());
-    //let delta = (b[[q - 1, q - 1]] - b[[q, q]]) / 2.0;
-    //let b_m1 = b[[q - 1, q]] * b[[q - 1, q]];
-    //let mu = b[[q, q]] - (delta.signum() * b_m1) / (delta.abs() + (delta * delta + b_m1).sqrt());
+    let delta = (a_qm1 - a_q) / 2.0;
+    let mu = a_q - (delta.signum() * b_qm1 * b_qm1) / (delta.abs() + (delta * delta + b_qm1 * b_qm1).sqrt());
 
     let t_11 = b[[p, p]] * b[[p, p]];
     let t_12 = b[[p, p]] * b[[p, p + 1]];
@@ -306,22 +302,28 @@ fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usize) {
     let mut z = t_12;
 
     // qr steps
-    for k in p..(q - 1) {
+    for k in p..q {
         // right rotation
         let (c, s) = givens_rotation(y, z);
         b.apply_right_givens(c, s, k, k + 1, p, q);
         v.apply_right_givens(c, s, k, k + 1, p, q);
 
+        println!("after right:\n{}", b);
+
         // left rotation
         y = b[[k, k]];
         z = b[[k + 1, k]];
         let (c, s) = givens_rotation(y, z);
-        b.apply_left_givens(c, s, k, k + 1, p, q);
-        u.apply_left_givens(c, s, k, k + 1, p, q);
+        b.apply_left_givens(c, s, k + 1, k, p, q);
+        u.apply_left_givens(c, s, k + 1, k, p, q);
+
+        println!("after left:\n{}", b);
 
         // update y and z
-        y = b[[k, k + 1]];
-        z = b[[k, k + 2]];
+        if p < q - 1 {
+            y = b[[k, k + 1]];
+            z = b[[k, k + 2]];
+        }
     }
 }
 
@@ -346,16 +348,17 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
         (u, b, v) = bidiagonalize(&a);
     }
 
-    let tol = 1e-12;
-    let mut q = 0;
+    let tol = 1e-16;
+    let mut q = n - 1;
     
-    loop {
+    while q > 0 {
         for i in 0..(n - 1) {
             if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
                 b[[i, i + 1]] = 0.0;
             }
         }
 
+        q = 0;
         for k in (0..(n - 1)).rev() {
             println!("kq: {}", k);
             if b[[k, k + 1]].abs() > tol {
@@ -375,24 +378,27 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
             }
         }
 
-        let mut has_zero = false;
-        for k in p..(q - 1) {
+        let mut found_zero = false;
+        for k in p..=q {
             if b[[k, k]].abs() < tol {
-                has_zero = true;
-
-                for i in k..(q - 1) {
-                    let (c, s) = givens_rotation(b[[k, i]], b[[k + 1, i]]);
-                    b.apply_left_givens(c, s, k + 1, i, p, q);
-                    u.apply_left_givens(c, s, k + 1, i, p, q);
-                }
+                found_zero = true;
+                break;
             }
         }
 
-        println!("P: {}, Q: {}", p, q);
-        if !has_zero && p < q {
-            qr_step(&mut u, &mut b, &mut v, p, q);
+        if found_zero {
+            for k in p..q {
+                if b[[k, k]].abs() < tol {
+                    let (c, s) = givens_rotation(b[[k, k + 1]], b[[k + 1, k + 1]]);
+                    b.apply_left_givens(c, s, k + 1, k, k, q);
+                    u.apply_left_givens(c, s, k + 1, k, 0, n - 1);
+                }
+            }
+            continue;
         }
 
+        println!("P: {}, Q: {}", p, q);
+        qr_step(&mut u, &mut b, &mut v, p, q);
         println!("{}\n", b);
     }
 

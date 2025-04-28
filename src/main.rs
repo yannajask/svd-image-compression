@@ -1,5 +1,5 @@
 use image::{GrayImage, ImageBuffer, ImageReader, Luma};
-use svd_image_compression::{bidiagonalize, matrix_multiply, svd, Matrix};
+use svd_image_compression::{bidiagonalize, matrix_multiply, svd, qr_step, Matrix};
 
 
 fn main() {
@@ -26,24 +26,26 @@ fn main() {
                 14.0, 0.0, 2.0, 2.0,
                 5.0, 5.0, 11.0, 35.0]);
     println!("A:\n{}", test);
-    let (u, b, v) = bidiagonalize(&test);
+    let (mut u, mut b, mut v) = bidiagonalize(&test);
     println!("V:\n{}", v);
     println!("B:\n{}", b);
     println!("U:\n{}", u);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
 
-    let test_t = test.transpose();
-    println!("A^T:\n{}", test_t);
-    let (u, b, v) = bidiagonalize(&test_t);
-    println!("A^T:\n{}", matrix_multiply(&u, &matrix_multiply(&b, &v.transpose())));
-    println!("A:\n{}", matrix_multiply(&v, &matrix_multiply(&b.transpose(), &u.transpose())));
     /*
+    qr_step(&mut u, &mut b, &mut v, 0, 3);
+    qr_step(&mut u, &mut b, &mut v, 0, 3);
+    qr_step(&mut u, &mut b, &mut v, 0, 3);
+    qr_step(&mut u, &mut b, &mut v, 0, 3);
+    println!("V_pq:\n{}", v);
+    println!("B_pq:\n{}", b);
+    println!("U_pq:\n{}", u);
+    */
     let (u, sigma, v) = svd(&test);
     println!("V:\n{}", v);
     println!("S:\n{}", sigma);
     println!("U:\n{}", b);
     println!("A:\n{}", matrix_multiply(&u, &matrix_multiply(&sigma, &v.transpose())));
-    */
 }
 
 // want to move these to lib.rs later
