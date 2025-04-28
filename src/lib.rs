@@ -110,10 +110,16 @@ impl Matrix {
         }
     }
 
+
+    /// Applies a map to the column at zero-based index `j`.
+    /// 
+    /// Panics if `j >= self.cols`.
+    #[inline]
     pub fn map_column<F>(&mut self, j: usize, map: F)
     where
         F: Fn(f64) -> f64,
     {
+        assert!(j < self.cols, "Cannot map to an out of bound index, j: {}", j);
         for i in 0..self.rows {
             self[[i, j]] = map(self[[i, j]]);
         }
@@ -299,7 +305,7 @@ pub fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     }
 }
 
-/// 
+/// Applies the implicit QR algorithm to a bidiagonal matrix B.
 ///
 /// Panics if `b.rows` < `b.cols`.
 /// 
@@ -354,7 +360,7 @@ pub fn qr_step(u: &mut Matrix, b: &mut Matrix, v: &mut Matrix, p: usize, q: usiz
 /// 
 /// Note that V is returned, not its transpose.
 #[inline]
-pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
+pub fn svd(a: &Matrix, max_iterations: usize) -> (Matrix, Matrix, Matrix) {
     let (mut m, mut n) = a.shape();
     let (mut u, mut b, mut v);
     let wide = m < n;
@@ -369,9 +375,12 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 
     let tol = 1e-16;
     let mut q = n - 1;
-    
+    let mut iterations = 0;
+
     // let B converge to a diagonal matrix
-    while q > 0 {
+    while q > 0 && iterations <= max_iterations {
+        iterations += 1;
+
         for i in 0..(n - 1) {
             if b[[i, i + 1]].abs() <= tol * (b[[i, i]].abs() + b[[i + 1, i +1]].abs()) {
                 b[[i, i + 1]] = 0.0;
@@ -452,12 +461,14 @@ pub fn svd(a: &Matrix) -> (Matrix, Matrix, Matrix) {
 }
 
 /// Returns the rank of a diagonal matrix.
+/// 
+/// Ignores small singular values `sv <= 1e-12`.
 #[inline]
 pub fn rank(sigma: &Matrix) -> usize {
     let (m, n) = sigma.shape();
     let mut rank = 0;
     for i in 0..m.min(n) {
-        if sigma[[i, i]] > 0.0 { rank += 1 }
+        if sigma[[i, i]] > 1e-12 { rank += 1 }
     }
     rank
 }
@@ -478,6 +489,7 @@ mod tests {
     use super::*;
 
     const TOLERANCE: f64 = 1e-4;
+    const MAX: usize = 500;
 
     fn assert_matrix_approx_eq(a: &Matrix, b: &Matrix, tol: f64) {
         assert_eq!(a.shape(), b.shape());
@@ -546,7 +558,7 @@ mod tests {
     #[test]
     fn tall_svd() {
         let a = Matrix::from_vec(3, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let (u, s, v) = svd(&a);
+        let (u, s, v) = svd(&a, MAX);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
@@ -555,7 +567,7 @@ mod tests {
     #[test]
     fn square_svd() {
         let a = Matrix::from_vec(3, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
-        let (u, s, v) = svd(&a);
+        let (u, s, v) = svd(&a, MAX);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
@@ -564,7 +576,7 @@ mod tests {
     #[test]
     fn wide_svd() {
         let a = Matrix::from_vec(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let (u, s, v) = svd(&a);
+        let (u, s, v) = svd(&a, MAX);
         assert_orthogonal(&u, TOLERANCE);
         assert_orthogonal(&v, TOLERANCE);
         assert_matrix_approx_eq(&a, &matrix_multiply(&u, &matrix_multiply(&s, &v.transpose())), TOLERANCE);
