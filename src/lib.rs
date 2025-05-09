@@ -378,7 +378,7 @@ pub fn svd(a: &Matrix, max_iterations: usize) -> (Matrix, Matrix, Matrix) {
     let mut iterations = 0;
 
     // let B converge to a diagonal matrix
-    while q > 0 && iterations <= max_iterations {
+    while q > 0 && iterations < max_iterations {
         iterations += 1;
 
         for i in 0..(n - 1) {
